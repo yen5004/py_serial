@@ -7,7 +7,7 @@ import logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Function to initialize the serial connection
-def init_serial_connection(port, baudrate=9600):
+def init_serial_connection(port, baudrate=12500):
     try:
         ser = serial.Serial(port, baudrate, timeout=1)  # Timeout of 1 second
         logging.info(f"Connected to {port} at {baudrate} baud.")
@@ -34,22 +34,23 @@ def send_command(ser, command, expected_prompt, wait_time=1):
         logging.error(f"Error during send_command: {e}")
         return False
 
-# Function to read credentials from a file
-def read_credentials(file_path):
+# Function to test passwords from a list
+def test_passwords(ser, password_file):
     try:
-        credentials = {}
-        with open(file_path, "r") as f:
-            lines = f.readlines()
-            for line in lines:
-                if '=' in line:
-                    key, value = line.strip().split('=', 1)
-                    credentials[key.strip()] = value.strip()
-        return credentials
+        with open(password_file, "r", encoding="latin-1") as file:  # RockYou uses "latin-1" encoding
+            for password in file:
+                password = password.strip()  # Remove newline characters
+                logging.info(f"Testing password: {password}")
+                if login_to_switch(ser, password):
+                    logging.info(f"Success! Correct password is: {password}")
+                    return True
+        logging.warning("No matching password found in the file.")
+        return False
     except Exception as e:
-        logging.error(f"Error reading credentials file: {e}")
-        return None
+        logging.error(f"Error reading password file: {e}")
+        return False
 
-# Function to login and check password
+# Function to login and check a single password
 def login_to_switch(ser, password):
     # Hardcoded username
     username = "Administrator"
@@ -73,19 +74,9 @@ def main():
     # Use argparse for flexibility
     parser = argparse.ArgumentParser(description="Serial Connection Script for Switch Login")
     parser.add_argument("--port", required=True, help="Serial port to connect to (e.g., COM3, /dev/ttyUSB0).")
-    parser.add_argument("--baudrate", type=int, default=9600, help="Baud rate for the serial connection.")
-    parser.add_argument("--file", required=True, help="Path to the credentials file.")
+    parser.add_argument("--baudrate", type=int, default=12500, help="Baud rate for the serial connection.")
+    parser.add_argument("--file", required=True, help="Path to the password list file.")
     args = parser.parse_args()
-
-    # Read credentials from the provided file
-    credentials = read_credentials(args.file)
-    if not credentials:
-        return
-
-    password = credentials.get("password")
-    if not password:
-        logging.error("Password missing in the credentials file.")
-        return
 
     # Initialize serial connection
     ser = init_serial_connection(args.port, args.baudrate)
@@ -93,11 +84,11 @@ def main():
         return
 
     try:
-        # Try to log in to the switch
-        if login_to_switch(ser, password):
-            logging.info("Login successful.")
+        # Test all passwords from the file
+        if test_passwords(ser, args.file):
+            logging.info("Password found and login successful.")
         else:
-            logging.error("Login failed.")
+            logging.warning("No valid password found.")
     finally:
         # Ensure the serial connection is closed
         ser.close()
